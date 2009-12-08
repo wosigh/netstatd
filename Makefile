@@ -1,4 +1,4 @@
-all: clean sync
+all: sync clean
 
 sync:
 	cp -PRp ../Netstat-Service/DEBIAN/* control/
