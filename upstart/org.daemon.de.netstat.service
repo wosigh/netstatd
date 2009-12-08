@@ -1,0 +1,17 @@
+description "Netstat Service"
+
+start on stopped finish
+stop on runlevel [!2]
+
+console none
+
+# Make sure stats collector doesn't slow down GUI use
+nice 5
+
+# Restart the collector if it exits/dies
+respawn
+
+exec /var/usr/palm/applications/org.daemon.de.netstat.service/startdaemon
+
+# end of file
+

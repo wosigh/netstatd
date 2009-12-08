@@ -1,0 +1,9 @@
+#!/bin/sh
+
+service="/var/usr/palm/applications/org.daemon.de.netstat.service/daemon"
+
+cd /
+
+$service &
+
+

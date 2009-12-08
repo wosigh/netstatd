@@ -1,0 +1,265 @@
+#!/bin/sh
+#
+# org.daemon.de.netstat.service stats collector
+#
+# currently install to root supported only
+#
+# Copyright (c) 2009 by Thomas Linden
+#
+# 
+#
+# Published under the terms of the Perl Artificial License.
+#
+
+#
+# initialize some vars
+me="org.daemon.de.netstat.service"
+pidfile="/var/run/$me.pid"
+
+# ok this indeed looks strange, but it's the location, where Mojo.Depot locates the db
+dbdir="/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
+statsfile="$dbdir/stats.json"
+sql="/usr/bin/sqlite3"
+stats="/proc/net/dev"
+tmpstatsfile="/tmp/netstat.$$"
+delay="300"
+
+#
+# SQL functions 
+createtables () {
+    # create tables if the doesn't exist
+    $sql $db "CREATE TABLE IF NOT EXISTS abslast    (interface char(8), rxabs int(32), txabs int(32));"
+    $sql $db "CREATE TABLE IF NOT EXISTS stats      (id timestamp, interface char(8), rx int(32), tx int(32));"
+    $sql $db "CREATE TABLE IF NOT EXISTS aggregated (id timestamp, interface char(8), rx int(32), tx int(32));"
+}
+
+getabstx() {
+    # return absolute rx for given interface
+    interface="$1"
+    txabs=`$sql $db "SELECT txabs FROM abslast WHERE interface=\"$interface\""`
+    echo $txabs
+}
+
+getabsrx() {
+    # return absolute tx for given interface
+    interface="$1"
+    rxabs=`$sql $db "SELECT rxabs FROM abslast WHERE interface=\"$interface\""`
+    echo $rxabs
+}
+
+setabs () {
+    # update absolute values for given interfaces
+    interface="$1"
+    rxabs="$2"
+    txabs="$3"
+    $sql $db "DELETE FROM abslast WHERE interface=\"$interface\""
+    $sql $db "INSERT INTO abslast VALUES(\"$interface\", $rxabs, $txabs)"
+}
+
+setcurrent () {
+    # add stats entry for current run
+    interface="$1"
+    rx="$2"
+    tx="$3"
+    $sql $db "INSERT INTO stats VALUES(CURRENT_TIMESTAMP, \"$interface\", $rx, $tx)"
+}
+
+getpreviousmonth () {
+    # return previous month in sqlite syntax
+    year=`date +%Y`
+    month=`date +%m`
+    if test $month -eq 1; then
+	# januar, use last year
+	year=`expr $year -1`
+	month=12
+    else
+	month=`$month -1`
+    fi
+    echo "$year-$month"
+}
+
+year=`date +%Y`
+month=`date +%m`
+
+bytefactor () {
+    bytes="$1"
+    if test $bytes -gt 1024; then
+	kbytes=`expr $bytes / 1024`
+	if test $kbytes -gt 1024; then
+	    mbytes=`expr $kbytes / 1024`
+	    if test $mbytes -gt 1024; then
+		gbytes=`expr $mbytes / 1024`
+		echo "$gbytes GB"
+	    else
+		echo "$mbytes MB"
+	    fi
+	else
+	    echo "$kbytes KB"
+	fi
+    else
+	echo "$bytes Bytes"
+    fi
+}
+
+getstats () {
+    interface="$1"
+    graph="wifigraph"
+
+    if test "$interface" = "ppp0"; then
+	graph="wangraph"
+    fi
+    if test "$interface" = "bsl0"; then
+	graph="btgraph"
+    fi
+
+    # get summary of all rx+tx of current month
+    bytes=`$sql $db "SELECT sum(rx + tx) FROM stats WHERE interface=\"$interface\" AND id like \"${year}-${month}%\""`
+    
+    if test -n "$bytes"; then
+	statbytes=`bytefactor $bytes`
+    else
+	statbytes="0 Bytes"
+    fi
+
+    echo "  \"$graph\": \"$statbytes\","
+}
+
+aggregate () {
+    # write aggregated rx+tx of last month to aggregated table
+    # and remove tick data from stats table
+    interface="$1"
+    ###ts=`getpreviousmonth`
+
+    # get summary of all rx+tx of last month
+    ###rx=`$sql $db "SELECT sum(rx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
+    ###tx=`$sql $db "SELECT sum(tx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
+
+    # reset counters in stats table
+    $sql $db "DELETE FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""
+
+    # update aggregated data
+    ###$sql $db "INSERT INTO aggregated VALUES(\"$year-$month-01 00:00:00\", \"$interface\", $rx, $tx)"
+}
+
+finddb () {
+    # so, this is really ugly. really. When the app opens the database
+    # it gets moved. So, if we start here with 0000000000000001.db,
+    # it ends up in 0000000000000002.db, 0000000000000003.db and so forth.
+    # I assume it moves it to a new version each time it opens the db.
+    # for whatever fucking stupid reason. damn stupid.
+    default="$dbdir/0000000000000001.db"
+    if ls $dbdir/*.db > /dev/null 2>&1; then
+	# not empty
+	mydb=`ls $dbdir/*.db`
+        echo "$mydb"
+    else
+	echo $default
+    fi
+}
+
+# main program
+cd /
+
+
+# luna-blah does start it several times, for whatever stupid reason
+# so we prevent it from concurrent instanciations of daemon
+if test -s "$pidfile"; then
+    if ! ps axuww | grep $me | grep -v grep > /dev/null 2>&1; then
+	rm $pidfile
+    else
+	logger "Another instance of $me is already running"
+	exit
+    fi
+fi
+
+# register our own pid
+echo $$ > $pidfile
+
+# install signal handler, which removes the pidfile on finish or kill
+trap "rm -f $pidfile; exit" EXIT TERM INT
+
+logger "$me started"
+
+
+# which db to use, initialize it, if needed
+mkdir -p $dbdir
+db=`finddb`
+
+# initially create the tables (this doesn't do anything if the
+# database already exists)
+
+createtables
+
+# main loop, runs until kill
+while : ; do
+    echo "{" > $tmpstatsfile
+    for interface in eth0 ppp0 bsl0; do
+	# fetch current rx+tx values from procfile
+	line=`grep "$interface:" $stats`
+	set -- $line
+	rx=${2}
+	tx=${10}
+
+	# set to zero if not defined (e.g. when said interface is currently not online)
+	if test -z "$rx"; then
+	    rx="0"
+	fi
+	if test -z "$tx"; then
+	    tx="0"
+	fi
+
+	# get absolute rx+tx values from database
+	absrx=`getabsrx $interface`
+	abstx=`getabstx $interface`
+
+	# always write current rx+tx as last absolute values     
+	setabs $interface $rx $tx
+
+        # check if last absolute values are larger than
+	# current ones, which means there have been an interface
+	# reset since the last update. if they are larger, keep
+	# rx+tx the current values, otherwise (checked here),
+	# write the diff to the last absolute values to the db
+	if test -n "$absrx" -a -n "$abstx"; then
+	    if test $absrx -le $rx; then
+		# absrx is smaller or equal than current, make current rx a diff from that
+		rx=`expr $rx - $absrx`
+	    fi
+	    if test $abstx -le $tx; then
+		tx=`expr $tx - $abstx`
+	    fi
+	fi
+
+	# finally write the rx+tx values since last update to db
+	setcurrent $interface $rx $tx
+
+	# get stats for current month
+	graph=`getstats $interface`
+	echo "$graph" >> $tmpstatsfile
+
+	# look if we are at aggregate time
+	day=`date +%d`
+	if test "$day" = "1"; then
+	    aggregate $interface
+	fi
+    done
+
+    # save lastupdate
+    echo "  \"lastupdate\": \"`date +'%H:%M:%S %m/%d/%Y'`\"," >> $tmpstatsfile
+    echo "  \"timestamp\": \"`date +%s`\"" >> $tmpstatsfile
+    echo "}" >> $tmpstatsfile
+
+    # set output for app
+    cp $tmpstatsfile $statsfile
+
+    sleep $delay
+
+    # which db to use, we do this just every loop. bitches.
+    db=`finddb`
+
+    if test ! -f "$db"; then
+	createtables
+    fi
+done
+
+logger "$me stopped"

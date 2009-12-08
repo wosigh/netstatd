@@ -1,0 +1,6 @@
+#!/bin/sh
+
+/bin/ln -sf /var/etc/event.d/org.daemon.de.netstat.service /etc/event.d/
+
+/sbin/start org.daemon.de.netstat.service
+
