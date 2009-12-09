@@ -8,13 +8,13 @@
 #
 # 
 #
-# Published under the terms of the Perl Artificial License.
+# Published under the terms of the BSD License.
 #
 
 #
 # initialize some vars
-me="org.daemon.de.netstat.service"
-pidfile="/var/run/$me.pid"
+me="/usr/sbin/netstatd"
+pidfile="/var/run/netstatd.pid"
 
 # ok this indeed looks strange, but it's the location, where Mojo.Depot locates the db
 dbdir="/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon.de.netstat_0"

@@ -1,16 +1,16 @@
 #!/bin/sh
 
-pidfile="/var/run/org.daemon.de.netstat.service.pid"
+pidfile="/var/run/netstatd.pid"
 
 if test -s "$pidfile"; then
     pid=`cat $pidfile`
 else
     echo "No PID recorded in $pidfile"
-    pid=`ps axuw | grep org.daemon.de.netstat.service | grep -v grep | awk '{print $2}'`
+    pid=`ps axuw | grep /usr/sbin/netstatd | grep -v grep | awk '{print $2}'`
 fi
 
 if test -z "$pid"; then
-    echo "org.daemon.de.netstat.service/daemon is not running"
+    echo "/usr/bin/netstatd is not running"
 else
     kill $pid
 fi

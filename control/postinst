@@ -1,6 +1,11 @@
 #!/bin/sh
 
-/bin/ln -sf /var/etc/event.d/org.daemon.de.netstat.service /etc/event.d/
+if [ -z "$IPKG_OFFLINE_ROOT" ]; then
+    IPKG_OFFLINE_ROOT=/var
+fi
 
-/sbin/start org.daemon.de.netstat.service
+cp $IPKG_OFFLINE_ROOT/etc/event.d/org.daemon.de.netstatd /etc/event.d/org.daemon.de.netstatd
+
+/sbin/start org.daemon.de.netstatd
+
 

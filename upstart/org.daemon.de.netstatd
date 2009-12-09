@@ -1,0 +1,28 @@
+# -*-sh-*-
+description "Netstat Daemon"
+
+start on stopped finish
+stop on runlevel [!2]
+
+console none
+
+# Make sure stats collector doesn't slow down GUI use
+nice 5
+
+# Restart the collector if it exits/dies
+respawn
+
+script
+
+    if [ -d /media/cryptofs/apps ] ; then
+	APPS=/media/cryptofs/apps
+    else
+	APPS=/var
+    fi
+
+    exec $APPS/usr/sbin/netstatd.in $APPS
+
+end script
+
+# end of file
+
