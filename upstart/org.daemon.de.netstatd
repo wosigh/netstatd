@@ -13,15 +13,12 @@ nice 5
 respawn
 
 script
-
     if [ -d /media/cryptofs/apps ] ; then
 	APPS=/media/cryptofs/apps
     else
 	APPS=/var
     fi
-
-    exec $APPS/usr/sbin/netstatd &
-
+    /bin/sh $APPS/usr/sbin/netstatd
 end script
 
 # end of file

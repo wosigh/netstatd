@@ -23,11 +23,11 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.1"
+version="1.0.3"
 
 
 if test -n "$1"; then
-    echo "$0 version 1.0.1, package org.daemon.de.netstatd"
+    echo "$0 version $version, package org.daemon.de.netstatd"
     exit
 fi
 
@@ -165,20 +165,29 @@ finddb () {
     fi
 }
 
+
+
+
+
+
+
+
 # main program
 cd /
 
 
+
 # luna-blah does start it several times, for whatever stupid reason
 # so we prevent it from concurrent instanciations of daemon
-if test -s "$pidfile"; then
-    if ! ps axuww | grep $me | grep -v grep > /dev/null 2>&1; then
-	rm $pidfile
-    else
-	logger "Another instance of $me is already running"
-	exit
-    fi
-fi
+#if test -s "$pidfile"; then
+#    pid=`cat $pidfile`
+#    if ps axuw | egrep "${pid}.*netstatd" > /dev/null 2>&1; then
+#        logger "Another instance of $me is already running [$pid]"
+#        exit                                                      
+#    else       
+#        rm $pidfile
+#    fi
+#fi
 
 # register our own pid
 echo $$ > $pidfile
