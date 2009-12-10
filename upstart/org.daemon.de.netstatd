@@ -20,7 +20,7 @@ script
 	APPS=/var
     fi
 
-    exec $APPS/usr/sbin/netstatd.in $APPS
+    exec $APPS/usr/sbin/netstatd.in &
 
 end script
 

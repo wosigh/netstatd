@@ -23,6 +23,14 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
+version="1.0.1"
+
+
+if test -n "$1"; then
+    echo "$0 version 1.0.1, package org.daemon.de.netstatd"
+    exit
+fi
+
 
 #
 # SQL functions 
