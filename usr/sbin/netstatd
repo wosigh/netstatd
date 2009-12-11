@@ -23,7 +23,7 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.3"
+version="1.0.4"
 
 
 if test -n "$1"; then

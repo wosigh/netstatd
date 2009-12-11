@@ -18,7 +18,7 @@ script
     else
 	APPS=/var
     fi
-    /bin/sh $APPS/usr/sbin/netstatd
+    exec /bin/sh $APPS/usr/sbin/netstatd
 end script
 
 # end of file
