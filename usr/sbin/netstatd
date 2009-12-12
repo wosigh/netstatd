@@ -23,8 +23,11 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.4"
-
+version="1.0.5"
+prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
+prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
+preflsl=""
+startday="1"
 
 if test -n "$1"; then
     echo "$0 version $version, package org.daemon.de.netstatd"
@@ -165,7 +168,32 @@ finddb () {
     fi
 }
 
-
+findstartday () {
+    if ls $prefdir/*.db > /dev/null 2>&1; then
+	# not empty
+	prefdb=`ls $prefdir/*.db`
+	if test -z "$preflsl"; then
+	    # first seen, return the new value
+	    preflsl=`ls -l $prefdb`
+	    startday=`$sql $prefdb "$prefsql"`
+	else
+	    # have already seen it
+	    newlsl=`ls -l $prefdb`
+	    if test "$newlsl" != "$preflsl"; then
+		# preferences value changed, fetch and update preflsl
+		preflsl="$newlsl"
+		startday=`$sql $prefdb "$prefsql"`
+	    else
+		# we do nothing
+		:
+	    fi
+	fi
+    else
+	# no db so far, keep the default
+	:
+    fi
+    echo $startday
+}
 
 
 
@@ -210,6 +238,7 @@ createtables
 # main loop, runs until kill
 while : ; do
     echo "{" > $tmpstatsfile
+    resetday=`findstartday`
     for interface in eth0 ppp0 bsl0; do
 	# fetch current rx+tx values from procfile
 	line=`grep "$interface:" $stats`
@@ -255,8 +284,8 @@ while : ; do
 	echo "$graph" >> $tmpstatsfile
 
 	# look if we are at aggregate time
-	day=`date +%d`
-	if test "$day" = "1"; then
+	currentday=`date +%d`
+	if test "$currentday" = "$resetday"; then
 	    aggregate $interface
 	fi
     done
