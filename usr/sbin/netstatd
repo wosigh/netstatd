@@ -26,6 +26,8 @@ delay="300"
 version="1.0.5"
 prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
 prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
+prefresetsql="select p.value from properties as p, toc as t where t.key = \"resetcounter\" and t.id = p.frowid;"
+prefresetidsql="select id from toc where key=\"resetcounter\";"
 preflsl=""
 startday="1"
 
@@ -42,7 +44,9 @@ createtables () {
     $sql $db "CREATE TABLE IF NOT EXISTS abslast    (interface char(8), rxabs int(32), txabs int(32));"
     $sql $db "CREATE TABLE IF NOT EXISTS stats      (id timestamp, interface char(8), rx int(32), tx int(32));"
     $sql $db "CREATE TABLE IF NOT EXISTS aggregated (id timestamp, interface char(8), rx int(32), tx int(32));"
+    $sql $db "CREATE TABLE IF NOT EXISTS resetted   (id timestamp, interface char(8));"
 }
+
 
 getabstx() {
     # return absolute rx for given interface
@@ -75,7 +79,7 @@ setcurrent () {
     $sql $db "INSERT INTO stats VALUES(CURRENT_TIMESTAMP, \"$interface\", $rx, $tx)"
 }
 
-getpreviousmonth () {
+UNUSEDgetpreviousmonth () {
     # return previous month in sqlite syntax
     year=`date +%Y`
     month=`date +%m`
@@ -89,8 +93,6 @@ getpreviousmonth () {
     echo "$year-$month"
 }
 
-year=`date +%Y`
-month=`date +%m`
 
 bytefactor () {
     bytes="$1"
@@ -124,7 +126,7 @@ getstats () {
     fi
 
     # get summary of all rx+tx of current month
-    bytes=`$sql $db "SELECT sum(rx + tx) FROM stats WHERE interface=\"$interface\" AND id like \"${year}-${month}%\""`
+    bytes=`$sql $db "SELECT sum(rx + tx) FROM stats WHERE interface=\"$interface\""`
     
     if test -n "$bytes"; then
 	statbytes=`bytefactor $bytes`
@@ -135,7 +137,33 @@ getstats () {
     echo "  \"$graph\": \"$statbytes\","
 }
 
-aggregate () {
+getreset() {
+    interface="$1"
+    ts=`$sql $db "SELECT id FROM resetted WHERE interface = \"$interface\" AND id like \"${year}-${month}-${day}%\"`
+    if test -n "$ts"; then
+	# we had already a reset
+	echo 1
+    else
+	echo ""
+    fi
+}
+
+aggregate() {
+    interface="$1"
+
+    reset=`getreset $interface`
+    if test -z "$reset"; then
+	# no reset so far
+
+	# remove stats data for this interface
+	$sql $db "DELETE FROM stats WHERE interface=\"$interface\""
+
+	# register interface counter reset
+	$sql $db "INSERT INTO resetted VALUES(CURRENT_TIMESTAMP, \"$interface\")"
+    fi
+}
+
+UNUSEDaggregate () {
     # write aggregated rx+tx of last month to aggregated table
     # and remove tick data from stats table
     interface="$1"
@@ -146,7 +174,7 @@ aggregate () {
     ###tx=`$sql $db "SELECT sum(tx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
 
     # reset counters in stats table
-    $sql $db "DELETE FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""
+    $sql $db "DELETE FROM stats WHERE interface=\"$interface\""
 
     # update aggregated data
     ###$sql $db "INSERT INTO aggregated VALUES(\"$year-$month-01 00:00:00\", \"$interface\", $rx, $tx)"
@@ -168,35 +196,58 @@ finddb () {
     fi
 }
 
-findstartday () {
+findprefsdb () {
     if ls $prefdir/*.db > /dev/null 2>&1; then
 	# not empty
 	prefdb=`ls $prefdir/*.db`
 	if test -z "$preflsl"; then
 	    # first seen, return the new value
 	    preflsl=`ls -l $prefdb`
-	    startday=`$sql $prefdb "$prefsql"`
+	    echo $prefdb
 	else
 	    # have already seen it
 	    newlsl=`ls -l $prefdb`
 	    if test "$newlsl" != "$preflsl"; then
 		# preferences value changed, fetch and update preflsl
 		preflsl="$newlsl"
-		startday=`$sql $prefdb "$prefsql"`
+		echo $prefdb
 	    else
-		# we do nothing
+		# nothing changed
 		:
 	    fi
 	fi
     else
-	# no db so far, keep the default
+	# no db so far
 	:
+    fi
+}
+
+findstartday () {
+    prefdb=`findprefsdb`
+    if test -n "$prefdb"; then
+	startday=`$sql $prefdb "$prefsql"`
     fi
     echo $startday
 }
 
 
-
+checkresetcounters() {
+    prefdb=`findprefsdb`
+    if test -n "$prefdb"; then
+	doreset=`$sql $prefdb "$prefresetsql"`
+	if test -n "$doreset"; then
+	    if test $doreset -eq 1; then
+		# reset counters forced
+		propid=`$sql $prefdb "$prefresetidsql"`
+		if test -n "$propid"; then
+		    # set the value to 0
+		    $sql $prefdb "UPDATE properties SET VALUE=\"0\" WHERE frowid=$propid"
+		    echo 1
+		fi
+	    fi
+	fi
+    fi
+}
 
 
 
@@ -235,10 +286,19 @@ db=`finddb`
 
 createtables
 
+
+#exec 2> $dbdir/debug.log
+#set -x
+
 # main loop, runs until kill
 while : ; do
     echo "{" > $tmpstatsfile
+    day=`date +%d`
+    year=`date +%Y`
+    month=`date +%m`
     resetday=`findstartday`
+    forcereset=`checkresetcounters`
+
     for interface in eth0 ppp0 bsl0; do
 	# fetch current rx+tx values from procfile
 	line=`grep "$interface:" $stats`
@@ -284,9 +344,13 @@ while : ; do
 	echo "$graph" >> $tmpstatsfile
 
 	# look if we are at aggregate time
-	currentday=`date +%d`
-	if test "$currentday" = "$resetday"; then
+
+	if test -n "$forcereset"; then
 	    aggregate $interface
+	else
+	    if test "$day" = "$resetday"; then
+		aggregate $interface
+	    fi
 	fi
     done
 
@@ -297,6 +361,8 @@ while : ; do
 
     # set output for app
     cp $tmpstatsfile $statsfile
+
+    echo "##################################" > /dev/null
 
     sleep $delay
 
