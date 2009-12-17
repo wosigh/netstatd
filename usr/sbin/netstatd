@@ -14,7 +14,6 @@
 #
 # initialize some vars
 me="/usr/sbin/netstatd"
-pidfile="/var/run/netstatd.pid"
 
 # ok this indeed looks strange, but it's the location, where Mojo.Depot locates the db
 dbdir="/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
@@ -23,7 +22,7 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.5"
+version="1.0.6"
 prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
 prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
 prefresetsql="select p.value from properties as p, toc as t where t.key = \"resetcounter\" and t.id = p.frowid;"
@@ -155,30 +154,40 @@ aggregate() {
     if test -z "$reset"; then
 	# no reset so far
 
+	# get summary of all rx+tx of last month
+	rx=`$sql $db "SELECT sum(rx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
+	tx=`$sql $db "SELECT sum(tx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
+
+        # update aggregated data
+	$sql $db "INSERT INTO aggregated VALUES(CURRENT_TIMESTAMP, \"$interface\", $rx, $tx)"
+
 	# remove stats data for this interface
-	$sql $db "DELETE FROM stats WHERE interface=\"$interface\""
+	#$sql $db "DELETE FROM stats WHERE interface=\"$interface\""
 
 	# register interface counter reset
 	$sql $db "INSERT INTO resetted VALUES(CURRENT_TIMESTAMP, \"$interface\")"
+
+	# create aggregate json file
+	json="$dbdir/aggregate-$interface.json"
+	echo "{"               > $json
+	echo "  \"items\": [" >> $json
+
+	# fetch aggregated data and output in json format
+	$sql -separator ' ' $db "SELECT id, rx, tx FROM aggregated WHERE interface=\"$interface\" ORDER BY id DESC" | while read adate atime arx atx; do
+	    echo "    {"                        >> $json
+	    echo "       \"date\": \"$adate\"," >> $json
+	    echo "       \"time\": \"$atime\"," >> $json
+	    echo "         \"rx\": \"$arx\","   >> $json
+	    echo "         \"tx\": \"$atx\""    >> $json
+	    echo "    },"                       >> $json
+	done
+	count=`grep date $json | wc -l`
+	echo "  ],"                    >> $json
+	echo "  \"count\": \"$count\"" >> $json
+	echo "}"                       >> $json
     fi
 }
 
-UNUSEDaggregate () {
-    # write aggregated rx+tx of last month to aggregated table
-    # and remove tick data from stats table
-    interface="$1"
-    ###ts=`getpreviousmonth`
-
-    # get summary of all rx+tx of last month
-    ###rx=`$sql $db "SELECT sum(rx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
-    ###tx=`$sql $db "SELECT sum(tx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
-
-    # reset counters in stats table
-    $sql $db "DELETE FROM stats WHERE interface=\"$interface\""
-
-    # update aggregated data
-    ###$sql $db "INSERT INTO aggregated VALUES(\"$year-$month-01 00:00:00\", \"$interface\", $rx, $tx)"
-}
 
 finddb () {
     # so, this is really ugly. really. When the app opens the database
@@ -268,8 +277,6 @@ cd /
 #    fi
 #fi
 
-# register our own pid
-echo $$ > $pidfile
 
 # install signal handler, which removes the pidfile on finish or kill
 trap "rm -f $pidfile; exit" EXIT TERM INT
