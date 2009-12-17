@@ -154,15 +154,15 @@ aggregate() {
     if test -z "$reset"; then
 	# no reset so far
 
-	# get summary of all rx+tx of last month
-	rx=`$sql $db "SELECT sum(rx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
-	tx=`$sql $db "SELECT sum(tx) FROM stats WHERE interface=\"$interface\" AND id like \"${ts}%\""`
+	# get summary of all rx+tx since last reset
+	rx=`$sql $db "SELECT sum(rx) FROM stats WHERE interface=\"$interface\""`
+	tx=`$sql $db "SELECT sum(tx) FROM stats WHERE interface=\"$interface\""`
 
         # update aggregated data
 	$sql $db "INSERT INTO aggregated VALUES(CURRENT_TIMESTAMP, \"$interface\", $rx, $tx)"
 
 	# remove stats data for this interface
-	#$sql $db "DELETE FROM stats WHERE interface=\"$interface\""
+	$sql $db "DELETE FROM stats WHERE interface=\"$interface\""
 
 	# register interface counter reset
 	$sql $db "INSERT INTO resetted VALUES(CURRENT_TIMESTAMP, \"$interface\")"
@@ -174,12 +174,13 @@ aggregate() {
 
 	# fetch aggregated data and output in json format
 	$sql -separator ' ' $db "SELECT id, rx, tx FROM aggregated WHERE interface=\"$interface\" ORDER BY id DESC" | while read adate atime arx atx; do
-	    echo "    {"                        >> $json
-	    echo "       \"date\": \"$adate\"," >> $json
-	    echo "       \"time\": \"$atime\"," >> $json
-	    echo "         \"rx\": \"$arx\","   >> $json
-	    echo "         \"tx\": \"$atx\""    >> $json
-	    echo "    },"                       >> $json
+	    bytes=`expr $arx + $atx`
+	    hrbytes=`bytefactor $bytes`
+	    echo "    {"                          >> $json
+	    echo "       \"date\": \"$adate\","   >> $json
+	    echo "       \"time\": \"$atime\","   >> $json
+	    echo "      \"bytes\": \"$hrbytes\"," >> $json
+	    echo "    },"                         >> $json
 	done
 	count=`grep date $json | wc -l`
 	echo "  ],"                    >> $json
