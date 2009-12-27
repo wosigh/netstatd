@@ -22,7 +22,7 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.6"
+version="1.0.7"
 prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
 prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
 prefresetsql="select p.value from properties as p, toc as t where t.key = \"resetcounter\" and t.id = p.frowid;"
@@ -117,7 +117,7 @@ getstats () {
     interface="$1"
     graph="wifigraph"
 
-    if test "$interface" = "ppp0"; then
+    if test "$interface" = "ppp0" -o "$interface" = "rmnet0"; then
 	graph="wangraph"
     fi
     if test "$interface" = "bsl0"; then
@@ -260,6 +260,17 @@ checkresetcounters() {
 }
 
 
+findppp () {
+    name="rmnet0"
+    if egrep "Hardware.*OMAP" /proc/cpuinfo > /dev/null 2>&1; then
+	# ok, we are on a palm pre
+	name="ppp0"
+    fi
+    # else: it's a pixi
+
+    echo $name
+}
+
 
 # main program
 cd /
@@ -298,6 +309,11 @@ createtables
 #exec 2> $dbdir/debug.log
 #set -x
 
+# find out if we are running on a pre or a pixi and set wan interface
+# name accordingly
+ppp=`findppp`
+
+
 # main loop, runs until kill
 while : ; do
     echo "{" > $tmpstatsfile
@@ -307,7 +323,7 @@ while : ; do
     resetday=`findstartday`
     forcereset=`checkresetcounters`
 
-    for interface in eth0 ppp0 bsl0; do
+    for interface in eth0 $ppp bsl0; do
 	# fetch current rx+tx values from procfile
 	line=`grep "$interface:" $stats`
 	set -- $line
