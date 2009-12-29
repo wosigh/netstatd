@@ -78,21 +78,6 @@ setcurrent () {
     $sql $db "INSERT INTO stats VALUES(CURRENT_TIMESTAMP, \"$interface\", $rx, $tx)"
 }
 
-UNUSEDgetpreviousmonth () {
-    # return previous month in sqlite syntax
-    year=`date +%Y`
-    month=`date +%m`
-    if test $month -eq 1; then
-	# januar, use last year
-	year=`expr $year -1`
-	month=12
-    else
-	month=`$month -1`
-    fi
-    echo "$year-$month"
-}
-
-
 bytefactor () {
     bytes="$1"
     if test $bytes -gt 1024; then
@@ -113,7 +98,8 @@ bytefactor () {
     fi
 }
 
-getstats () {
+
+getgraphname () {
     interface="$1"
     graph="wifigraph"
 
@@ -124,16 +110,17 @@ getstats () {
 	graph="btgraph"
     fi
 
+    echo $graph
+}
+
+
+getstats () {
+    interface="$1"
+
     # get summary of all rx+tx of current month
     bytes=`$sql $db "SELECT sum(rx + tx) FROM stats WHERE interface=\"$interface\""`
     
-    if test -n "$bytes"; then
-	statbytes=`bytefactor $bytes`
-    else
-	statbytes="0 Bytes"
-    fi
-
-    echo "  \"$graph\": \"$statbytes\","
+    echo $bytes
 }
 
 getreset() {
@@ -149,6 +136,7 @@ getreset() {
 
 aggregate() {
     interface="$1"
+    graph=`getgraphname $interface`
 
     reset=`getreset $interface`
     if test -z "$reset"; then
@@ -168,7 +156,7 @@ aggregate() {
 	$sql $db "INSERT INTO resetted VALUES(CURRENT_TIMESTAMP, \"$interface\")"
 
 	# create aggregate json file
-	json="$dbdir/aggregate-$interface.json"
+	json="$dbdir/aggregate-$graph.json"
 	echo "{"               > $json
 	echo "  \"items\": [" >> $json
 
@@ -180,12 +168,14 @@ aggregate() {
 	    echo "       \"date\": \"$adate\","   >> $json
 	    echo "       \"time\": \"$atime\","   >> $json
 	    echo "      \"bytes\": \"$hrbytes\"," >> $json
+	    echo "   \"rawbytes\": \"$bytes\","   >> $json
 	    echo "    },"                         >> $json
 	done
 	count=`grep date $json | wc -l`
-	echo "  ],"                    >> $json
-	echo "  \"count\": \"$count\"" >> $json
-	echo "}"                       >> $json
+	echo "  ],"                         >> $json
+	echo "  \"count\": \"$count\","     >> $json
+	echo "  \"ifname\": \"$interface\"" >> $json
+	echo "}"                            >> $json
     fi
 }
 
@@ -262,7 +252,7 @@ checkresetcounters() {
 
 findppp () {
     name="rmnet0"
-    if egrep "Hardware.*OMAP" /proc/cpuinfo > /dev/null 2>&1; then
+    if egrep "BUILDNAME.*Castle" /etc/palm-build-info > /dev/null 2>&1; then
 	# ok, we are on a palm pre
 	name="ppp0"
     fi
@@ -276,22 +266,8 @@ findppp () {
 cd /
 
 
-
-# luna-blah does start it several times, for whatever stupid reason
-# so we prevent it from concurrent instanciations of daemon
-#if test -s "$pidfile"; then
-#    pid=`cat $pidfile`
-#    if ps axuw | egrep "${pid}.*netstatd" > /dev/null 2>&1; then
-#        logger "Another instance of $me is already running [$pid]"
-#        exit                                                      
-#    else       
-#        rm $pidfile
-#    fi
-#fi
-
-
 # install signal handler, which removes the pidfile on finish or kill
-trap "rm -f $pidfile; exit" EXIT TERM INT
+trap "exit" EXIT TERM INT
 
 logger "$me started"
 
@@ -302,10 +278,9 @@ db=`finddb`
 
 # initially create the tables (this doesn't do anything if the
 # database already exists)
-
 createtables
 
-
+# remove comments to enable full debugging
 #exec 2> $dbdir/debug.log
 #set -x
 
@@ -364,11 +339,18 @@ while : ; do
 	setcurrent $interface $rx $tx
 
 	# get stats for current month
-	graph=`getstats $interface`
-	echo "$graph" >> $tmpstatsfile
+	rawtraffic=`getstats $interface`
+	graph=`getgraphname $interface`
+	traffic="0 Bytes"
+	if test -n "$rawtraffic"; then
+	    traffic=`bytefactor $rawtraffic`
+	fi
+	echo "  \"$graph\": {"                     >> $tmpstatsfile
+	echo "    \"traffic\":    \"$traffic\","   >> $tmpstatsfile
+	echo "    \"rawtraffic\": \"$rawtraffic\"" >> $tmpstatsfile
+	echo "  },"                                >> $tmpstatsfile
 
 	# look if we are at aggregate time
-
 	if test -n "$forcereset"; then
 	    aggregate $interface
 	else
