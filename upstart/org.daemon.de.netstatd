@@ -13,7 +13,7 @@ nice 5
 respawn
 
 script
-    if [ -d /media/cryptofs/apps ] ; then
+    if grep -q /media/cryptofs/apps /etc/palm/luna.conf ; then
 	APPS=/media/cryptofs/apps
     else
 	APPS=/var
