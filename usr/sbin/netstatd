@@ -27,6 +27,7 @@ prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
 prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
 prefresetsql="select p.value from properties as p, toc as t where t.key = \"resetcounter\" and t.id = p.frowid;"
 prefresetidsql="select id from toc where key=\"resetcounter\";"
+preflimitack="select id from toc where key=\"limitacknowledged\";"
 preflsl=""
 startday="1"
 
@@ -176,6 +177,9 @@ aggregate() {
 	echo "  \"count\": \"$count\","     >> $json
 	echo "  \"ifname\": \"$interface\"" >> $json
 	echo "}"                            >> $json
+
+	# reset preference limit ack flag
+	resetlimitack
     fi
 }
 
@@ -248,6 +252,22 @@ checkresetcounters() {
 	fi
     fi
 }
+
+
+
+resetlimitack() {
+    # reset "limitacknowledged" app preference to 0 on aggregate call.
+    prefdb=`findprefsdb`
+    if test -n "$prefdb"; then
+	propid=`$sql $prefdb "$preflimitack"`
+	if test -n "$propid"; then
+	    # set the value to 0
+	    $sql $prefdb "UPDATE properties SET VALUE=\"0\" WHERE frowid=$propid"
+	    echo 1
+	fi
+    fi
+}
+
 
 
 findppp () {
