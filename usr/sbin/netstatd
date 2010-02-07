@@ -27,7 +27,7 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.8"
+version="1.0.9"
 
 if [ -e "/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0" ] ; then
   prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
@@ -332,6 +332,7 @@ while : ; do
     for interface in eth0 $ppp bsl0; do
 	# fetch current rx+tx values from sys classes
 	rx=`cat /sys/class/net/${interface}/statistics/rx_bytes`
+	tx=`cat /sys/class/net/${interface}/statistics/tx_bytes`
 
 	# set to zero if not defined (e.g. when said interface is currently not online)
 	if test -z "$rx"; then
