@@ -21,17 +21,20 @@ if [ -e "/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon
 else
   dbdir="/media/internal/.app-storage/file_.media.cryptofs.apps.usr.palm.applications.org.daemon.de.netstat_0"
 fi
+
 statsfile="$dbdir/stats.json"
 sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
 version="1.0.8"
+
 if [ -e "/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0" ] ; then
   prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
 else
   prefdir="/var/palm/data/file_.media.cryptofs.apps.usr.palm.applications.org.daemon.de.netstat_0"
 fi
+
 prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
 prefresetsql="select p.value from properties as p, toc as t where t.key = \"resetcounter\" and t.id = p.frowid;"
 prefresetidsql="select id from toc where key=\"resetcounter\";"
@@ -327,11 +330,8 @@ while : ; do
     forcereset=`checkresetcounters`
 
     for interface in eth0 $ppp bsl0; do
-	# fetch current rx+tx values from procfile
-	line=`grep "$interface:" $stats`
-	set -- $line
-	rx=${2}
-	tx=${10}
+	# fetch current rx+tx values from sys classes
+	rx=`cat /sys/class/net/${interface}/statistics/rx_bytes`
 
 	# set to zero if not defined (e.g. when said interface is currently not online)
 	if test -z "$rx"; then
