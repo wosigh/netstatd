@@ -4,7 +4,7 @@
 #
 # currently install to root supported only
 #
-# Copyright (c) 2009 by Thomas Linden
+# Copyright (c) 2009-2010 by Thomas Linden
 #
 # 
 #
@@ -14,33 +14,84 @@
 #
 # initialize some vars
 me="/usr/sbin/netstatd"
-
-# ok this indeed looks strange, but it's the location, where Mojo.Depot locates the db
-if [ -e "/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon.de.netstat_0" ] ; then
-  dbdir="/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
-else
-  dbdir="/media/internal/.app-storage/file_.media.cryptofs.apps.usr.palm.applications.org.daemon.de.netstat_0"
-fi
-
-statsfile="$dbdir/stats.json"
 sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.9"
+version="1.0.10"
 
-if [ -e "/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0" ] ; then
-  prefdir="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
-else
-  prefdir="/var/palm/data/file_.media.cryptofs.apps.usr.palm.applications.org.daemon.de.netstat_0"
-fi
-
+#
+# prefedine some sql code
 prefsql="select p.value from properties as p, toc as t where t.key = \"startday\" and t.id = p.frowid;"
 prefresetsql="select p.value from properties as p, toc as t where t.key = \"resetcounter\" and t.id = p.frowid;"
 prefresetidsql="select id from toc where key=\"resetcounter\";"
 preflimitack="select id from toc where key=\"limitacknowledged\";"
 preflsl=""
 startday="1"
+
+
+
+
+
+#
+# find location of preferences and json files
+# ok this indeed looks strange, but it's the location, where Mojo.Depot locates the prefs DB
+loc_pref_cr="/var/palm/data/file_.media.cryptofs.apps.usr.palm.applications.org.daemon.de.netstat_0"
+loc_db_cr="/media/internal/.app-storage/file_.media.cryptofs.apps.usr.palm.applications.org.daemon.de.netstat_0"
+loc_app_cr="/media/cryptofs/apps/usr/palm/applications/org.daemon.de.netstat"
+
+loc_pref_var="/var/palm/data/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
+loc_db_var="/media/internal/.app-storage/file_.var.usr.palm.applications.org.daemon.de.netstat_0"
+loc_app_var="/var/usr/palm/applications/org.daemon.de.netstat"
+
+if test -d "${loc_app_cr}"; then
+    # ok, 1.3.5 based install or higher
+    prefdir=${loc_pref_cr}
+    dbdir=${loc_db_cr}
+    logger -t $me "we are running on webos 1.3.5 or higher, initializing"
+
+    if test -d "${loc_db_var}"; then
+	# an old db dir exists, migrate it to the new location
+	if test -d "${loc_db_cr}"; then
+	    # argl, new location already exists. migrate the db and
+	    # remove the old db dir
+	    logger -t $me "both new and old db locations exist. migrating old to new..."
+	    newdb=`finddb`
+	    $sql ${loc_db_var}/*.db .dump | $sql $newdb
+	    cp ${loc_db_var}/aggregate* ${loc_db_cr}/
+	    logger -t $me "migration done"
+	    rm -rf ${loc_db_var}
+	else
+	    # first run in new env, just move the db dir
+	    mv ${loc_db_var} ${loc_db_cr}
+	fi
+    fi
+
+    if test -d "${loc_pref_var}"; then
+	# pre-1.3.5 pref-db exists, this is configured in PalmDatabase.db3, we'll stay with that
+	prefdir=${loc_pref_var}
+    fi
+elif test -d "${loc_app_var}"; then
+    # nope, we are below 1.3.5
+    prefdir=${loc_pref_var}
+    dbdir=${loc_db_var}
+    logger -t $me "we are running on webos 1.3.1 or below, initializing"
+else
+    # holla, daemon installed, app not!
+    # we'll exit from here after 5 minutes, upstart
+    # will re-start us anyways. maybe in the meantime
+    # the user installed the app.
+    logger -t $me "will do nothing because netstat app is not installed!"
+    sleep 300
+    exit
+fi
+
+
+statsfile="$dbdir/stats.json"
+
+
+
+
 
 if test -n "$1"; then
     echo "$0 version $version, package org.daemon.de.netstatd"
@@ -90,24 +141,46 @@ setcurrent () {
     $sql $db "INSERT INTO stats VALUES(CURRENT_TIMESTAMP, \"$interface\", $rx, $tx)"
 }
 
+#
+# /bin/sh has an integer limitation as in:
+#   test 2380019993 -gt 1024
+#   sh: 2380019993: out of range
+# and expr also has a limitation (a bit larger)
+# also expr only returns integers, we want float.
+#
+# therefore we are using awk now for byte to human
+# readable conversion
 bytefactor () {
     bytes="$1"
-    if test $bytes -gt 1024; then
-	kbytes=`expr $bytes / 1024`
-	if test $kbytes -gt 1024; then
-	    mbytes=`expr $kbytes / 1024`
-	    if test $mbytes -gt 1024; then
-		gbytes=`expr $mbytes / 1024`
-		echo "$gbytes GB"
-	    else
-		echo "$mbytes MB"
-	    fi
+
+    converted=`echo $bytes | awk  '
+    BEGIN { CONVFMT = "%.3g" }
+    {
+        bytes = $1
+	if (bytes > 1024) {
+		kbytes = bytes / 1024
+		if (kbytes > 1024) {
+			mbytes = kbytes / 1024
+			if (mbytes > 1024) {
+				gbytes = mbytes / 1024
+                                if (gbytes > 1024) {
+                                        tbytes = gbytes / 1024
+                                        print tbytes " TB"
+                                }
+                                else
+				        print gbytes " GB"
+                        }
+			else
+				print mbytes " MB"
+                }
+		else
+			print kbytes " KB"
+        }
 	else
-	    echo "$kbytes KB"
-	fi
-    else
-	echo "$bytes Bytes"
-    fi
+		print bytes " Bytes"
+    }'`
+    
+    echo $converted
 }
 
 
@@ -153,6 +226,8 @@ aggregate() {
     reset=`getreset $interface`
     if test -z "$reset"; then
 	# no reset so far
+
+	logger -t $me "resetting counters"
 
 	# get summary of all rx+tx since last reset
 	rx=`$sql $db "SELECT sum(rx) FROM stats WHERE interface=\"$interface\""`
@@ -257,6 +332,7 @@ checkresetcounters() {
 		if test -n "$propid"; then
 		    # set the value to 0
 		    $sql $prefdb "UPDATE properties SET VALUE=\"0\" WHERE frowid=$propid"
+		    logger -t $me "user forced reset counters"
 		    echo 1
 		fi
 	    fi
@@ -283,11 +359,14 @@ resetlimitack() {
 
 findppp () {
     name="rmnet0"
+
     if egrep "BUILDNAME.*Castle" /etc/palm-build-info > /dev/null 2>&1; then
 	# ok, we are on a palm pre
 	name="ppp0"
+	logger -t $me "this device is a palm pre, using $name as WAN interface"
+    else
+	logger -t $me "this device is a palm pixi, using $name as WAN interface"
     fi
-    # else: it's a pixi
 
     echo $name
 }
@@ -300,7 +379,7 @@ cd /
 # install signal handler, which removes the pidfile on finish or kill
 trap "exit" EXIT TERM INT
 
-logger "$me started"
+logger -t $me "started"
 
 
 # which db to use, initialize it, if needed
@@ -397,8 +476,6 @@ while : ; do
     # set output for app
     cp $tmpstatsfile $statsfile
 
-    echo "##################################" > /dev/null
-
     sleep $delay
 
     # which db to use, we do this just every loop. bitches.
@@ -409,4 +486,4 @@ while : ; do
     fi
 done
 
-logger "$me stopped"
+logger -t $me "stopped"
