@@ -184,6 +184,52 @@ bytefactor () {
 }
 
 
+#
+# we now do all the math using awk
+# which is much more reliable than expr.
+#
+# we support 2 numbers and an operator
+# x will be replaced by *.
+#
+# both numbers and operand will be placed
+# into awk by using the shells interpolation
+# feature. so, $A, $B, $OP are shell variables
+# visible to math() and NOT awk variables.
+math () {
+    A=$1
+    OP=$2
+    B=$3
+
+    if test -z "$B"; then
+	# incomplete expression
+	if test -n "$A"; then
+	    # only $B missing
+	    echo $A
+	else
+	    # no expression at all
+	    echo 0
+	fi
+    else
+	if test "$OP" = "x"; then
+	    # translate x to *
+	    OP='*'
+	fi
+
+	if test "$OP" = "/" -a "$B" = "0"; then
+	    # avoid division by zero error
+	    echo 0
+	else
+	    result=`awk "
+               BEGIN {
+                   CONVFMT = \"%.3g\"
+                   print $A $OP $B
+               }"`
+	    echo $result
+	fi
+    fi
+}
+
+
 getgraphname () {
     interface="$1"
     graph="wifigraph"
@@ -249,7 +295,7 @@ aggregate() {
 
 	# fetch aggregated data and output in json format
 	$sql -separator ' ' $db "SELECT id, rx, tx FROM aggregated WHERE interface=\"$interface\" ORDER BY id DESC" | while read adate atime arx atx; do
-	    bytes=`expr $arx + $atx`
+	    bytes=`math $arx + $atx`
 	    hrbytes=`bytefactor $bytes`
 	    echo "    {"                          >> $json
 	    echo "       \"date\": \"$adate\","   >> $json
@@ -410,15 +456,15 @@ while : ; do
 
     for interface in eth0 $ppp bsl0; do
 	# fetch current rx+tx values from sys classes
-	rx=`cat /sys/class/net/${interface}/statistics/rx_bytes`
-	tx=`cat /sys/class/net/${interface}/statistics/tx_bytes`
-
-	# set to zero if not defined (e.g. when said interface is currently not online)
-	if test -z "$rx"; then
-	    rx="0"
+	sysrx="/sys/class/net/${interface}/statistics/rx_bytes"
+	systx="/sys/class/net/${interface}/statistics/tx_bytes"
+	rx=0
+	tx=0
+	if test -e "$sysrx"; then
+	    rx=`cat $sysrx`
 	fi
-	if test -z "$tx"; then
-	    tx="0"
+	if test -e "$systx"; then
+	    tx=`cat $systx`
 	fi
 
 	# get absolute rx+tx values from database
@@ -436,10 +482,10 @@ while : ; do
 	if test -n "$absrx" -a -n "$abstx"; then
 	    if test $absrx -le $rx; then
 		# absrx is smaller or equal than current, make current rx a diff from that
-		rx=`expr $rx - $absrx`
+		rx=`math $rx - $absrx`
 	    fi
 	    if test $abstx -le $tx; then
-		tx=`expr $tx - $abstx`
+		tx=`math $tx - $abstx`
 	    fi
 	fi
 
