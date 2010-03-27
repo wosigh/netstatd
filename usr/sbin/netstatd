@@ -18,7 +18,7 @@ sql="/usr/bin/sqlite3"
 stats="/proc/net/dev"
 tmpstatsfile="/tmp/netstat.$$"
 delay="300"
-version="1.0.10"
+version="1.0.16"
 
 #
 # prefedine some sql code
@@ -157,13 +157,13 @@ bytefactor () {
     BEGIN { CONVFMT = "%.3g" }
     {
         bytes = $1
-	if (bytes > 1024) {
+	if (bytes > 1000) {
 		kbytes = bytes / 1024
-		if (kbytes > 1024) {
+		if (kbytes > 1000) {
 			mbytes = kbytes / 1024
-			if (mbytes > 1024) {
+			if (mbytes > 1000) {
 				gbytes = mbytes / 1024
-                                if (gbytes > 1024) {
+                                if (gbytes > 1000) {
                                         tbytes = gbytes / 1024
                                         print tbytes " TB"
                                 }
